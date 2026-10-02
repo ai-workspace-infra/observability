@@ -4,7 +4,13 @@
 
 ## 一键安装
 
-在目标主机以 root 运行，支持 Debian 12+ / Ubuntu 24.04+（Python 3.11+）。安装前先由 Vault Agent 或受控 Shell 环境注入并 `export` `VAULT_ADDR`（HTTPS）与 `VAULT_TOKEN`。Vault Token 需要读取监控 KV v2 秘密的权限。不要把 token 写入命令参数、脚本或仓库。
+在目标主机以 root 运行，支持 Debian 12+ / Ubuntu 24.04+（Python 3.11+）。安装前由 Vault Agent 或受控 Shell 环境注入 `VAULT_TOKEN`，并在当前 Shell 导出 Vault 地址与监控秘密路径。Vault Token 需要读取监控 KV v2 秘密的权限；不要把 token 写入命令参数、脚本或仓库。示例：
+
+```bash
+export VAULT_ADDR="https://<vault-host>"
+export VAULT_OBSERVABILITY_SECRET_PATH="kv/data/CICD/observability"
+# VAULT_TOKEN 由 Vault Agent 安全注入到当前 Shell；不要用 env/set 回显秘密值
+```
 
 可安全确认当前 Shell 是否已传入变量，只打印“已设置/未设置”，不打印值：
 
@@ -24,7 +30,9 @@ curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/observability.sv
 unset GRAFANA_ADMIN_PASSWORD VAULT_TOKEN
 ```
 
-**探针端：** 安装器从 `kv/data/CICD/observability` 读取 `user`、`password`，并用 HTTP Basic Auth 向中心端写入指标和日志。也可直接注入 `VECTOR_AUTH_USER`、`VECTOR_AUTH_PASSWORD` 代替这组 Vault 字段。
+**Caddy 写入认证：** Caddy 入口使用 HTTP Basic Auth。安装器通过当前 Shell 的 Vault 环境安全读取 `kv/data/CICD/observability` 中的 `user`、`password`，不会把凭据打印到终端或 Ansible 日志。`VAULT_TLS_SECRET_PATH` 是代理 TLS 证书的秘密路径，若同一 Shell 同时配置代理 Vault Agent 可单独导出；它不是监控账号路径，独立监控安装器不会用它替代 `VAULT_OBSERVABILITY_SECRET_PATH`。
+
+**探针端：** 安装器从同一 Vault 路径读取 `user`、`password`，由 Vector 使用 HTTP Basic Auth 向 Caddy 写入指标和日志。每台探针仍需从 Vault 获取这组凭据，或直接注入 `VECTOR_AUTH_USER`、`VECTOR_AUTH_PASSWORD`。探针的 Vector 配置需要保存认证配置以便服务运行，因此请确保目标主机配置仅 root 可读。
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/observability.svc.plus/main/setup-observability-agent.sh | bash

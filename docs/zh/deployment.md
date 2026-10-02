@@ -4,7 +4,15 @@
 
 在目标主机以 root 执行，要求 Debian 12+ / Ubuntu 24.04+ 与 Python 3.11+，并能访问 GitHub、系统软件源和监控端点。安装器按需安装 Python、Ansible 及部署依赖。服务端应先完成公网 DNS 指向与 TLS 所需网络条件。
 
-安装前先由 Vault Agent 或受控 Shell 环境注入并 `export` `VAULT_ADDR`（HTTPS）与 `VAULT_TOKEN`。Vault Token 需要读取监控 KV v2 秘密的权限。默认从 `kv/data/CICD/observability` 读取 `user`、`password` 作为探针写入凭据；可用 `VAULT_OBSERVABILITY_SECRET_PATH` 指定其他 KV v2 `/data/` 路径。也可直接注入 `VECTOR_AUTH_USER` 和 `VECTOR_AUTH_PASSWORD`。探针通过 HTTP Basic Auth 写入监控数据。
+安装前由 Vault Agent 或受控 Shell 环境注入 `VAULT_TOKEN`，并在当前 Shell 导出 Vault 地址与监控秘密路径。Vault Token 需要读取监控 KV v2 秘密的权限。默认从 `kv/data/CICD/observability` 读取 `user`、`password` 作为探针写入凭据；可用 `VAULT_OBSERVABILITY_SECRET_PATH` 指定其他 KV v2 `/data/` 路径。也可直接注入 `VECTOR_AUTH_USER` 和 `VECTOR_AUTH_PASSWORD`。探针通过 HTTP Basic Auth 写入监控数据。
+
+```bash
+export VAULT_ADDR="https://<vault-host>"
+export VAULT_OBSERVABILITY_SECRET_PATH="kv/data/CICD/observability"
+# VAULT_TOKEN 由 Vault Agent 安全注入到当前 Shell；不要用 env/set 回显秘密值
+```
+
+`VAULT_TLS_SECRET_PATH` 可供同一 Shell 中的代理 Vault Agent 读取 TLS 证书秘密；它与监控用户名密码的 Vault 路径用途不同，独立监控安装器不使用该变量。
 
 只核对当前 Shell 是否已传入变量时，可查看状态而不暴露值：
 
@@ -16,7 +24,9 @@ done
 
 服务端还需注入 `GRAFANA_ADMIN_PASSWORD`，可由 Vault Agent 提供，或用 `read -rsp` 隐藏输入。该值控制 Grafana 首次初始化；已有 Grafana 管理员密码以持久化数据库为准。两端安装命令及帮助命令见[根 README](../../README.md)。
 
-Grafana 当前 VictoriaMetrics 数据源查询地址为容器内网 `http://victoria-metrics:8428`，认证方式是 `No Authentication`，查询监控数据不需要额外 Auth Token。探针写入使用 `kv/data/CICD/observability` 中的 `user`、`password`。Grafana Service Account Token 仅供 Grafana MCP 使用，Vault 路径为 `kv/data/observability/mcp`，字段为 `GRAFANA_SERVICE_ACCOUNT_TOKEN`；独立安装入口默认关闭 MCP，因此这不是探针接入凭据。
+Grafana 当前 VictoriaMetrics 数据源查询地址为容器内网 `http://victoria-metrics:8428`，认证方式是 `No Authentication`，查询监控数据不需要额外 Auth Token。Caddy 写入入口保护探针上报路径。安装器通过当前 Shell 的 Vault 环境读取 `kv/data/CICD/observability` 中 `user`、`password` 并用于 HTTP Basic Auth，不会将这组凭据打印到终端或 Ansible 日志。探针本地 Vector 配置需要保留认证配置才能持续运行，请确保目标主机配置仅 root 可读。
+
+Grafana Service Account Token 仅供 Grafana MCP 使用，Vault 路径为 `kv/data/observability/mcp`，字段为 `GRAFANA_SERVICE_ACCOUNT_TOKEN`；独立安装入口默认关闭 MCP，因此这不是探针接入凭据。
 
 ## 参数
 

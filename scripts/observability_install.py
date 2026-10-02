@@ -116,7 +116,7 @@ def overlay_server(repo):
 
 def run(argv, env):
     secrets = [env.get(k, '') for k in ('VAULT_TOKEN', 'VAULT_SERVER_ROOT_ACCESS_TOKEN',
-                                      'VECTOR_AUTH_PASSWORD', 'GRAFANA_ADMIN_PASSWORD', 'INTERNAL_SERVICE_TOKEN')]
+                                      'VECTOR_AUTH_USER', 'VECTOR_AUTH_PASSWORD', 'GRAFANA_ADMIN_PASSWORD', 'INTERNAL_SERVICE_TOKEN')]
     process = subprocess.Popen(argv, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     for line in process.stdout:
         for secret in secrets:
