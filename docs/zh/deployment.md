@@ -22,9 +22,9 @@ for name in VAULT_ADDR VAULT_TOKEN; do
 done
 ```
 
-服务端还需注入 `GRAFANA_ADMIN_PASSWORD`，可由 Vault Agent 提供，或用 `read -rsp` 隐藏输入。该值控制 Grafana 首次初始化；已有 Grafana 管理员密码以持久化数据库为准。两端安装命令及帮助命令见[根 README](../../README.md)。
+服务端还需注入 `GRAFANA_ADMIN_PASSWORD`，可由 Vault Agent 提供，或用 `read -rsp` 隐藏输入。该值控制 Grafana 首次初始化；已有 Grafana 管理员密码以持久化数据库为准。若 `VAULT_ADDR`、`VAULT_TOKEN`、`VAULT_TLS_SECRET_PATH` 均未设置，服务端会生成随机 Basic Auth 用户名和密码，并仅在部署与健康检查成功后于终端显示一次；不会写入服务器文件或 Ansible 日志，请当场安全保存。若 Vault 变量只提供了一部分则会报错。两端安装命令及帮助命令见[根 README](../../README.md)。
 
-Grafana 当前 VictoriaMetrics 数据源查询地址为容器内网 `http://victoria-metrics:8428`，认证方式是 `No Authentication`，查询监控数据不需要额外 Auth Token。Caddy 写入入口保护探针上报路径。安装器通过当前 Shell 的 Vault 环境读取 `kv/data/CICD/observability` 中 `user`、`password` 并用于 HTTP Basic Auth，不会将这组凭据打印到终端或 Ansible 日志。探针本地 Vector 配置需要保留认证配置才能持续运行，请确保目标主机配置仅 root 可读。
+Grafana 当前 VictoriaMetrics 数据源查询地址为容器内网 `http://victoria-metrics:8428`，认证方式是 `No Authentication`，查询监控数据不需要额外 Auth Token。Caddy 写入入口保护探针上报路径。安装器有 Vault 配置时通过当前 Shell 安全读取 `kv/data/CICD/observability` 中 `user`、`password` 并用于 HTTP Basic Auth，不会将这组 Vault 凭据打印到终端或 Ansible 日志。无 Vault 配置时服务端仅在部署成功后输出一次随机生成的凭据；探针端必须读取 Vault 中同一组凭据，或安全输入这组凭据，不能独立生成。探针本地 Vector 配置需要保留认证配置才能持续运行，请确保目标主机配置仅 root 可读。
 
 Grafana Service Account Token 仅供 Grafana MCP 使用，Vault 路径为 `kv/data/observability/mcp`，字段为 `GRAFANA_SERVICE_ACCOUNT_TOKEN`；独立安装入口默认关闭 MCP，因此这不是探针接入凭据。
 
