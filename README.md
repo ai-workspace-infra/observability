@@ -4,27 +4,43 @@
 
 ## 一键安装
 
-在目标主机以 root 运行，支持 Debian 12+ / Ubuntu 24.04+（Python 3.11+）。安装前由 Vault 向当前 Shell 注入凭据，详见[部署说明](docs/zh/deployment.md)。
+在目标主机以 root 运行，支持 Debian 12+ / Ubuntu 24.04+（Python 3.11+）。安装前先由 Vault Agent 或受控 Shell 环境注入并 `export` `VAULT_ADDR`（HTTPS）与 `VAULT_TOKEN`。Vault Token 需要读取监控 KV v2 秘密的权限。不要把 token 写入命令参数、脚本或仓库。
 
-服务端：
+可安全确认当前 Shell 是否已传入变量，只打印“已设置/未设置”，不打印值：
 
 ```bash
-export OBSERVABILITY_DOMAIN="observability.svc.plus"
-# 已导出 VAULT_ADDR、VAULT_TOKEN、GRAFANA_ADMIN_PASSWORD
+for name in VAULT_ADDR VAULT_TOKEN; do
+  if [[ -n "${!name:-}" ]]; then printf '%s: 已设置\n' "$name"; else printf '%s: 未设置\n' "$name"; fi
+done
+```
+
+**服务端：** 还需提供 `GRAFANA_ADMIN_PASSWORD`。通过 Vault Agent 注入，或在当前 Shell 中隐藏输入：
+
+```bash
+read -rsp "Grafana admin password: " GRAFANA_ADMIN_PASSWORD
+printf '\n'
+export GRAFANA_ADMIN_PASSWORD
 curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/observability.svc.plus/main/setup-observability-server.sh | bash
+unset GRAFANA_ADMIN_PASSWORD VAULT_TOKEN
 ```
 
-主机探针：
+**探针端：** 安装器从 `kv/data/CICD/observability` 读取 `user`、`password`，并用 HTTP Basic Auth 向中心端写入指标和日志。也可直接注入 `VECTOR_AUTH_USER`、`VECTOR_AUTH_PASSWORD` 代替这组 Vault 字段。
 
 ```bash
-export OBSERVABILITY_NODE_NAME="$(hostname -f)"
-export OBSERVABILITY_ENDPOINT="https://observability.svc.plus"
-export DEPLOY_ENV="production"
-# 已导出 VAULT_ADDR、VAULT_TOKEN
 curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/observability.svc.plus/main/setup-observability-agent.sh | bash
+unset VAULT_TOKEN
 ```
 
-两个脚本支持 `--help`。探针采集监控数据；XConnect 节点注册仍由 [xconnect-edge-agent](https://github.com/ai-workspace-xstream/xconnect-edge-agent) 管理。
+这两个入口也可先查看帮助：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/observability.svc.plus/main/setup-observability-server.sh | bash -s -- --help
+curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/observability.svc.plus/main/setup-observability-agent.sh | bash -s -- --help
+```
+
+**Grafana 的 Auth Token 说明：** 当前 Grafana 的 VictoriaMetrics 数据源走容器内网地址 `http://victoria-metrics:8428`，数据源设置为 `No Authentication`，因此 Grafana 查询监控数据不需要单独的 Auth Token。探针写入凭据是上面 Vault 中的监控用户名和密码，不是 Grafana Token。只有启用 Grafana MCP 时才使用 Grafana Service Account Token：存放在 Vault KV v2 `kv/data/observability/mcp` 的 `GRAFANA_SERVICE_ACCOUNT_TOKEN` 字段；当前独立安装入口默认关闭 MCP，该 Token 不参与探针安装或数据写入。
+
+探针采集监控数据；XConnect 节点注册仍由 [xconnect-edge-agent](https://github.com/ai-workspace-xstream/xconnect-edge-agent) 管理。
 
 ## 仓库范围
 

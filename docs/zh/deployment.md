@@ -4,9 +4,19 @@
 
 在目标主机以 root 执行，要求 Debian 12+ / Ubuntu 24.04+ 与 Python 3.11+，并能访问 GitHub、系统软件源和监控端点。安装器按需安装 Python、Ansible 及部署依赖。服务端应先完成公网 DNS 指向与 TLS 所需网络条件。
 
-由 Vault 向当前 Shell 注入并导出 `VAULT_ADDR`（HTTPS）、`VAULT_TOKEN`。默认从 `kv/data/CICD/observability` 读取 `user`、`password`；可用 `VAULT_OBSERVABILITY_SECRET_PATH` 指定其他 KV v2 `/data/` 路径。也可直接注入 `VECTOR_AUTH_USER` 和 `VECTOR_AUTH_PASSWORD`。凭据仅在运行时提供，不使用命令行参数或仓库文件存储。
+安装前先由 Vault Agent 或受控 Shell 环境注入并 `export` `VAULT_ADDR`（HTTPS）与 `VAULT_TOKEN`。Vault Token 需要读取监控 KV v2 秘密的权限。默认从 `kv/data/CICD/observability` 读取 `user`、`password` 作为探针写入凭据；可用 `VAULT_OBSERVABILITY_SECRET_PATH` 指定其他 KV v2 `/data/` 路径。也可直接注入 `VECTOR_AUTH_USER` 和 `VECTOR_AUTH_PASSWORD`。探针通过 HTTP Basic Auth 写入监控数据。
 
-服务端还需注入 `GRAFANA_ADMIN_PASSWORD`。该值控制初次初始化；已有 Grafana 管理员密码以持久化数据库为准。安装命令见[根 README](../../README.md)。
+只核对当前 Shell 是否已传入变量时，可查看状态而不暴露值：
+
+```bash
+for name in VAULT_ADDR VAULT_TOKEN; do
+  if [[ -n "${!name:-}" ]]; then printf '%s: 已设置\n' "$name"; else printf '%s: 未设置\n' "$name"; fi
+done
+```
+
+服务端还需注入 `GRAFANA_ADMIN_PASSWORD`，可由 Vault Agent 提供，或用 `read -rsp` 隐藏输入。该值控制 Grafana 首次初始化；已有 Grafana 管理员密码以持久化数据库为准。两端安装命令及帮助命令见[根 README](../../README.md)。
+
+Grafana 当前 VictoriaMetrics 数据源查询地址为容器内网 `http://victoria-metrics:8428`，认证方式是 `No Authentication`，查询监控数据不需要额外 Auth Token。探针写入使用 `kv/data/CICD/observability` 中的 `user`、`password`。Grafana Service Account Token 仅供 Grafana MCP 使用，Vault 路径为 `kv/data/observability/mcp`，字段为 `GRAFANA_SERVICE_ACCOUNT_TOKEN`；独立安装入口默认关闭 MCP，因此这不是探针接入凭据。
 
 ## 参数
 
