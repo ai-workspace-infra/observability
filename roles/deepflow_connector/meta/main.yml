@@ -1,7 +1,0 @@
-galaxy_info:
-  author: observability.svc.plus
-  description: Export DeepFlow L4/L7 metrics to VictoriaMetrics through OpenTelemetry Collector
-  license: Apache-2.0
-  min_ansible_version: '2.10'
-
-dependencies: []
