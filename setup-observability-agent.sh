@@ -28,6 +28,6 @@ fi
 tmp="$(mktemp -d /tmp/observability-bootstrap.XXXXXX)"
 trap 'rm -rf "$tmp"' EXIT
 curl -fsSL --retry 3 --connect-timeout 10 \
-    "https://raw.githubusercontent.com/cloud-neutral-toolkit/observability.svc.plus/${ref}/scripts/observability_install.py" \
+    "https://raw.githubusercontent.com/ai-workspace-infra/observability.svc.plus/${ref}/scripts/observability_install.py" \
     -o "$tmp/install.py"
 python3 "$tmp/install.py" agent
