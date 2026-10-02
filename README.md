@@ -1,18 +1,109 @@
-# Observability
+<h1 align="center">Observability</h1>
+<p align="center"><strong>可观测性部署入口 | Telemetry Deployment Toolkit</strong></p>
 
-监控服务端与主机探针的独立安装入口。部署实现统一复用 [ai-workspace-infra/playbooks](https://github.com/ai-workspace-infra/playbooks)，本仓库仅维护安装脚本、使用文档与安装器验证。
+<p align="center">
+  <a href="https://github.com/ai-workspace-infra/observability"><img src="https://img.shields.io/badge/Repository-ai--workspace--infra%2Fobservability-181717?style=for-the-badge&logo=github" alt="GitHub repository" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache--2.0-green?style=for-the-badge" alt="Apache-2.0" /></a>
+  <a href="https://github.com/ai-workspace-infra/observability/actions/workflows/standalone-installers.yml"><img src="https://img.shields.io/github/actions/workflow/status/ai-workspace-infra/observability/standalone-installers.yml?branch=main&label=Installer%20CI&logo=githubactions&style=for-the-badge" alt="Installer CI" /></a>
+  <a href="https://github.com/ai-workspace-infra/observability/actions/workflows/validate-release-pr.yml"><img src="https://img.shields.io/github/actions/workflow/status/ai-workspace-infra/observability/validate-release-pr.yml?branch=main&label=Secret%20scan&logo=githubactions&style=for-the-badge" alt="Secret scan" /></a>
+</p>
 
-## 一键安装
+<p align="center"><strong>🇨🇳 简体中文</strong> ｜ <a href="docs/README.md">文档索引</a></p>
 
-在目标主机以 root 运行，支持 Debian 12+ / Ubuntu 24.04+（Python 3.11+）。安装前由 Vault Agent 或受控 Shell 环境注入 `VAULT_TOKEN`，并在当前 Shell 导出 Vault 地址与监控秘密路径。Vault Token 需要读取监控 KV v2 秘密的权限；不要把 token 写入命令参数、脚本或仓库。示例：
+---
+
+## 🇨🇳 项目概览
+
+`ai-workspace-infra/observability` 提供可观测性中心服务与主机探针的一键部署入口。安装器复用 [平台 Playbooks](https://github.com/ai-workspace-infra/playbooks) 中的 Ansible roles 和服务模板，在目标主机部署采集、接入、存储与可视化组件。
+
+本仓库维护轻量安装脚本、部署说明和契约检查；服务角色、多主机库存与编排以 `playbooks` 为准，避免两处实现漂移。
+
+### 使命与交付准则
+
+- **统一遥测**：汇集 Metrics、Logs 与 Traces，供 Grafana 查询与展示。
+- **声明式部署**：安装器调用固定版本的 Playbooks，保留配置备份并执行部署后检查。
+- **凭据最小暴露**：优先从 Vault 运行时读取监控账号；避免把秘密写进脚本、仓库或日志。
+- **明确验收边界**：本机服务健康不等于中心端已收到数据；接入后还需检查指标和日志的新鲜度。
+
+### 常用入口
+
+- **Grafana**：[observability.svc.plus/grafana](https://observability.svc.plus/grafana/)
+- **平台组织**：[ai-workspace-infra](https://github.com/ai-workspace-infra)
+- **部署实现**：[playbooks](https://github.com/ai-workspace-infra/playbooks)
+- **安装与验证说明**：[中文部署指南](docs/zh/deployment.md) · [架构与维护边界](docs/zh/architecture.md)
+
+---
+
+## 🏛️ 核心能力
+
+<table>
+<tr>
+<td width="25%" align="center" valign="top">
+  <h3>📥<br/>主机探针</h3>
+  <p><strong>Metrics 与 Logs</strong></p>
+  <p align="left"><sub>使用 Node Exporter、Process Exporter、Blackbox Exporter 与 Vector 采集主机指标和 systemd 日志；已有 Xray Exporter 可选接入。</sub></p>
+</td>
+<td width="25%" align="center" valign="top">
+  <h3>🧭<br/>接入网关</h3>
+  <p><strong>Caddy 与 TLS</strong></p>
+  <p align="left"><sub>由 Caddy 统一提供 HTTPS 入口，并使用 HTTP Basic Auth 保护探针写入路径。</sub></p>
+</td>
+<td width="25%" align="center" valign="top">
+  <h3>🗄️<br/>遥测存储</h3>
+  <p><strong>指标、日志、链路</strong></p>
+  <p align="left"><sub>VictoriaMetrics、VictoriaLogs、VictoriaTraces 与 OpenTelemetry Collector 提供后端存储和数据接入。</sub></p>
+</td>
+<td width="25%" align="center" valign="top">
+  <h3>📊<br/>可视化与告警</h3>
+  <p><strong>Grafana</strong></p>
+  <p align="left"><sub>Grafana 汇总查询各遥测后端，提供仪表盘、探索与告警入口。</sub></p>
+</td>
+</tr>
+</table>
+
+---
+
+## 🔄 部署与数据流
+
+```mermaid
+flowchart LR
+    A[目标主机探针<br/>Node / Process / Blackbox Exporter] --> V[Vector]
+    V -->|HTTPS + Basic Auth| C[Caddy 接入网关]
+    C --> M[VictoriaMetrics]
+    C --> L[VictoriaLogs]
+    O[OpenTelemetry 数据源] --> C
+    C --> T[VictoriaTraces / OTel]
+    M --> G[Grafana]
+    L --> G
+    T --> G
+```
+
+1. **准备认证**：Vault 提供 `kv/data/CICD/observability` 中的 `user`、`password`；两者用于 Caddy 写入入口的 HTTP Basic Auth。
+2. **部署中心端**：在服务主机运行 Server 安装入口。若 Vault 相关变量全部缺失，安装器会生成一组随机写入凭据，并在部署及健康检查通过后于终端显示一次。
+3. **部署探针**：在每台主机运行 Agent 入口。探针必须使用与中心端相同的 Vault 凭据，或安全输入服务端生成并显示的凭据。
+4. **完成验收**：确认 Grafana、Caddy、存储服务健康，并在 Grafana 中按节点检查指标与日志是否持续更新。
+
+---
+
+## 🚀 部署 Observability
+
+### 环境要求
+
+- Debian 12+ 或 Ubuntu 24.04+
+- 以 `root` 运行；Python 3.11+（安装器可在缺少 Python 时安装）
+- 可访问 GitHub、系统软件源和监控服务端点
+
+### Vault 环境
+
+在目标主机当前 Shell 中设置 Vault 地址与监控秘密路径，由 Vault Agent 或受控运行环境提供 `VAULT_TOKEN`：
 
 ```bash
 export VAULT_ADDR="https://<vault-host>"
 export VAULT_OBSERVABILITY_SECRET_PATH="kv/data/CICD/observability"
-# VAULT_TOKEN 由 Vault Agent 安全注入到当前 Shell；不要用 env/set 回显秘密值
+# VAULT_TOKEN 由 Vault Agent 注入；不要用 env 或 set 回显秘密值
 ```
 
-可安全确认当前 Shell 是否已传入变量，只打印“已设置/未设置”，不打印值：
+安装器从 KV v2 路径读取 `user`、`password`。`VAULT_TLS_SECRET_PATH` 用于代理 TLS 证书秘密，不替代监控账号路径。可通过以下方式检查变量是否注入，而不显示其内容：
 
 ```bash
 for name in VAULT_ADDR VAULT_TOKEN; do
@@ -20,7 +111,9 @@ for name in VAULT_ADDR VAULT_TOKEN; do
 done
 ```
 
-**服务端：** 还需提供 `GRAFANA_ADMIN_PASSWORD`。通过 Vault Agent 注入，或在当前 Shell 中隐藏输入。若 `VAULT_ADDR`、`VAULT_TOKEN`、`VAULT_TLS_SECRET_PATH` 均未设置，服务端会生成随机 Basic Auth 用户名和密码；仅在部署及健康检查成功后于终端显示一次，不写入服务器文件或 Ansible 日志。请当场安全保存。若这三项只配置了一部分，部署会报错，不会悄悄改用新凭据：
+### 中心服务
+
+服务端还需要 `GRAFANA_ADMIN_PASSWORD`。可由 Vault Agent 注入，或在当前 Shell 隐藏输入：
 
 ```bash
 read -rsp "Grafana admin password: " GRAFANA_ADMIN_PASSWORD
@@ -30,43 +123,70 @@ curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/observability.sv
 unset GRAFANA_ADMIN_PASSWORD VAULT_TOKEN
 ```
 
-**Caddy 写入认证：** Caddy 入口使用 HTTP Basic Auth。安装器通过当前 Shell 的 Vault 环境安全读取 `kv/data/CICD/observability` 中的 `user`、`password`，不会把凭据打印到终端或 Ansible 日志。`VAULT_TLS_SECRET_PATH` 是代理 TLS 证书的秘密路径，若同一 Shell 同时配置代理 Vault Agent 可单独导出；它不是监控账号路径，独立监控安装器不会用它替代 `VAULT_OBSERVABILITY_SECRET_PATH`。
-
-**探针端：** 安装器从同一 Vault 路径读取 `user`、`password`，由 Vector 使用 HTTP Basic Auth 向 Caddy 写入指标和日志。若服务端使用自动生成的凭据，每台探针必须从 Vault 读取同一组凭据，或在当前 Shell 用 `read -rsp` 安全输入并导出 `VECTOR_AUTH_USER`、`VECTOR_AUTH_PASSWORD`；探针端不会单独生成凭据。Vector 需要在本机受限权限配置中保留认证信息才能持续运行。
+## 🔌 接入 Observability Agent
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/observability.svc.plus/main/setup-observability-agent.sh | bash
 unset VAULT_TOKEN
 ```
 
-这两个入口也可先查看帮助：
+若服务端使用自动生成的凭据，在每台探针上隐藏输入同一组值，再运行 Agent 安装入口：
+
+```bash
+read -rp "Caddy Basic Auth user: " VECTOR_AUTH_USER
+read -rsp "Caddy Basic Auth password: " VECTOR_AUTH_PASSWORD
+printf '\n'
+export VECTOR_AUTH_USER VECTOR_AUTH_PASSWORD
+curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/observability.svc.plus/main/setup-observability-agent.sh | bash
+unset VECTOR_AUTH_USER VECTOR_AUTH_PASSWORD VAULT_TOKEN
+```
+
+安装器不会把自动生成的明文凭据写入中心端文件或 Ansible 日志。探针的 Vector 服务需要在本机受限权限配置中保留账号以持续上报。完整参数、备份与恢复说明见[部署指南](docs/zh/deployment.md)。
+
+### 查看安装帮助
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/observability.svc.plus/main/setup-observability-server.sh | bash -s -- --help
 curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/observability.svc.plus/main/setup-observability-agent.sh | bash -s -- --help
 ```
 
-**Grafana 的 Auth Token 说明：** 当前 Grafana 的 VictoriaMetrics 数据源走容器内网地址 `http://victoria-metrics:8428`，数据源设置为 `No Authentication`，因此 Grafana 查询监控数据不需要单独的 Auth Token。探针写入凭据是上面 Vault 中的监控用户名和密码，不是 Grafana Token。只有启用 Grafana MCP 时才使用 Grafana Service Account Token：存放在 Vault KV v2 `kv/data/observability/mcp` 的 `GRAFANA_SERVICE_ACCOUNT_TOKEN` 字段；当前独立安装入口默认关闭 MCP，该 Token 不参与探针安装或数据写入。
+---
 
-探针采集监控数据；XConnect 节点注册仍由 [xconnect-edge-agent](https://github.com/ai-workspace-xstream/xconnect-edge-agent) 管理。
+## 🔐 认证说明
 
-## 仓库范围
+- Grafana 的 VictoriaMetrics 数据源通过 Docker 内网地址访问，当前配置为 `No Authentication`；Grafana 查询指标不需要单独的 Auth Token。
+- Caddy 写入入口对探针使用 HTTP Basic Auth，默认从 Vault KV v2 `kv/data/CICD/observability` 读取 `user`、`password`。
+- 未配置 `VAULT_ADDR`、`VAULT_TOKEN`、`VAULT_TLS_SECRET_PATH` 且未直接提供写入账号时，Server 安装器会生成随机账号，并仅在部署及健康检查成功后输出一次。若 Vault 变量只配置了一部分，安装器会失败关闭。
+- Grafana Service Account Token 仅用于可选 Grafana MCP，Vault 字段为 `kv/data/observability/mcp` 中的 `GRAFANA_SERVICE_ACCOUNT_TOKEN`；独立安装入口默认关闭 MCP。
 
-- `setup-observability-{server,agent}.sh`：独立部署入口。
-- `scripts/observability_install.py`：下载固定版本 playbooks，生成当前主机参数、备份配置、执行部署与健康检查。
-- `docs/`：架构及部署说明。
-- `tests/`、`.github/workflows/`：安装器契约验证与凭据扫描。
-- `LICENSE`、`NOTICE`：许可证与历史来源声明。
+---
 
-[架构说明](docs/zh/architecture.md) · [部署说明](docs/zh/deployment.md)
+## 🧪 CI 与本地验证
 
-本地目录名为 `observability`；GitHub 仓库仍为 `ai-workspace-infra/observability.svc.plus`，以上下载地址保持有效。本仓库不再维护旧 Pigsty roles、库存、应用模板、Terraform/Vagrant 或旧全栈初始化器。多主机编排请使用 playbooks 的正式 inventory 和 `deploy_observability_server.yml` / `deploy_observability_agent.yml`。
-
-## 验证
+Pull Request 会运行安装器契约检查、Shell 语法检查和凭据扫描。也可在本地执行：
 
 ```bash
 bash -n setup-observability-server.sh setup-observability-agent.sh
 python3 -m unittest discover -s tests -p test_standalone_installers.py -v
 ```
 
-测试环境需安装 PyYAML。静态测试通过不代表目标主机已经部署或完成中心端数据验收。
+测试环境需要 PyYAML。静态检查通过不代表目标主机已经完成部署或中心端数据验收。
+
+---
+
+## 🧩 仓库职责
+
+| 仓库 | 职责 |
+| :--- | :--- |
+| [`observability`](https://github.com/ai-workspace-infra/observability) | 独立安装入口、使用文档与安装器契约验证 |
+| [`playbooks`](https://github.com/ai-workspace-infra/playbooks) | Ansible roles、服务模板、inventory 与多主机部署编排 |
+| [`observability.svc.plus`](https://github.com/ai-workspace-infra/observability.svc.plus) | 监控站点与一键安装器发布入口 |
+
+服务端与探针角色的变更应提交到 `playbooks`；本仓库承载安装体验与项目入口文档。XConnect 节点注册由 [xconnect-edge-agent](https://github.com/ai-workspace-xstream/xconnect-edge-agent) 管理，与通用主机探针安装分开。
+
+---
+
+<p align="center">
+  <strong>安全 · 开放 · 可观测 · 可审计</strong><br/>
+  <sub>Secure · Open · Observable · Auditable</sub>
+</p>
