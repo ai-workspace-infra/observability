@@ -43,6 +43,42 @@ flowchart LR
 - `openclaw.svc.plus`：部署 agent，采集后上报到中心端
 - `jp-xhttp.svc.plus`：部署 agent，采集后上报到中心端
 
+### 独立一键部署入口
+
+以下两个入口只部署当前主机，适用于 **Debian 12+ / Ubuntu 24.04+（Python 3.11+）**，以 root 运行。它们复用固定 commit 的 [平台 playbooks](https://github.com/ai-workspace-infra/playbooks)，不运行旧的全栈初始化流程，也不修改 DNS。
+
+先由 Vault 在当前 Shell 注入并导出 `VAULT_ADDR`、`VAULT_TOKEN`，或直接注入 `VECTOR_AUTH_USER`、`VECTOR_AUTH_PASSWORD`。脚本默认从 `kv/data/CICD/observability` 的 `user`、`password` 字段读取监控凭据；可用 `VAULT_OBSERVABILITY_SECRET_PATH` 覆盖 KV v2 路径。真实凭据不要写入脚本、命令行参数或仓库。
+
+**服务端：** 在专用监控主机上运行，先将域名 DNS 指向该主机，并由 Vault 注入 `GRAFANA_ADMIN_PASSWORD`。
+
+```bash
+export OBSERVABILITY_DOMAIN="observability.svc.plus"
+# VAULT_ADDR、VAULT_TOKEN、GRAFANA_ADMIN_PASSWORD 已由 Vault 注入并导出
+curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/observability.svc.plus/main/setup-observability-server.sh | bash
+```
+
+安装 Caddy、Docker、Grafana、VictoriaMetrics、VictoriaLogs、VictoriaTraces、OTel 和 Blackbox。写入入口开启 Basic Auth；Grafana 初始管理员密码使用运行时变量，已有 Grafana 用户密码仍以持久化数据库为准。默认关闭可选 MCP。配置先备份到 `/root/observability-backups/`，重跑保留 Compose 数据卷，不包含删除、重置或数据库迁移。
+
+**探针：** 在每台被监控主机上运行，无需 Accounts 或 XConnect 节点 token。
+
+```bash
+export OBSERVABILITY_NODE_NAME="$(hostname -f)"
+export OBSERVABILITY_ENDPOINT="https://observability.svc.plus"
+export DEPLOY_ENV="production"
+# VAULT_ADDR、VAULT_TOKEN 已由 Vault 注入并导出
+curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/observability.svc.plus/main/setup-observability-agent.sh | bash
+```
+
+安装 Node Exporter、Process Exporter、Blackbox 和 Vector，开启 TLS 校验及 systemd 日志采集，通过节点标签向中心端推送数据。它不安装或注册 XConnect Agent；已有 Xray Exporter 时保留其指标采集，可用 `OBSERVABILITY_XRAY_ENABLED=true/false` 覆盖。已有 Billing 快照链路需要继续提供 `VECTOR_BILLING_INGEST_ENABLED=true`、`VECTOR_BILLING_INGEST_URL` 和 `INTERNAL_SERVICE_TOKEN`，默认只安装监控。
+
+两个脚本均支持 `--help`。服务端检查 Caddy 配置及核心服务健康，探针检查服务、本地指标和认证日志写入；失败返回非零。安装后仍需在中心端按 `instance` 验证新指标和日志，并验证服务端公网 DNS/TLS。完成后清理 Shell 中的凭据变量：
+
+```bash
+unset VAULT_TOKEN VECTOR_AUTH_USER VECTOR_AUTH_PASSWORD GRAFANA_ADMIN_PASSWORD INTERNAL_SERVICE_TOKEN
+```
+
+可用 `OBSERVABILITY_INSTALLER_REF` 固定本仓库完整 commit SHA，`OBSERVABILITY_PLAYBOOKS_REF` 固定平台 playbooks 完整 commit SHA。默认安装器跟随 main，平台 playbooks 固定在已验证的 `4a35679825b778d401eb9041face098c938ae449`；服务端的域名和凭据适配只作用于临时下载副本。
+
 ### Ansible (Recommended)
 
 #### Server side
@@ -98,14 +134,14 @@ ansible-playbook -i <your-inventory> node.yml \
 ### Server side
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/cloud-neutral-toolkit/observability.svc.plus/main/scripts/setup-observability-all-in-one.sh?$(date +%s)" | bash -s -- observability.svc.plus
+curl -fsSL "https://raw.githubusercontent.com/ai-workspace-infra/observability.svc.plus/main/scripts/setup-observability-all-in-one.sh?$(date +%s)" | bash -s -- observability.svc.plus
 ```
 
 ### Client side (agent)
 
 ```bash
 # bash -s -- --endpoint <YOUR_ENDPOINT>
-curl -fsSL https://raw.githubusercontent.com/cloud-neutral-toolkit/observability.svc.plus/main/scripts/agent-install.sh \
+curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/observability.svc.plus/main/scripts/agent-install.sh \
   | bash -s -- --endpoint https://observability.svc.plus/ingest/otlp
 ```
 
@@ -122,7 +158,7 @@ macOS is supported as a user-level installation. It uses `launchd` and writes
 under `~/Library/Application Support/observability`, so `sudo` is not needed:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/cloud-neutral-toolkit/observability.svc.plus/main/scripts/agent-install.sh \
+curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/observability.svc.plus/main/scripts/agent-install.sh \
   | bash -s -- --endpoint https://observability.svc.plus/ingest/otlp -y
 ```
 
@@ -136,7 +172,7 @@ If you have deployed DeepFlow with `deepflow.yml`, you can install `deepflow-age
 
 ```bash
 # example: endpoint exposed by caddy grpc ingress (deepflow_grpc_domain:443)
-curl -fsSL https://raw.githubusercontent.com/cloud-neutral-toolkit/observability.svc.plus/main/scripts/agent-install.sh \
+curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/observability.svc.plus/main/scripts/agent-install.sh \
   | bash -s -- \
     --endpoint https://observability.svc.plus/ingest/otlp \
     --deepflow-agent \
@@ -182,7 +218,7 @@ Default inventory template: `conf/deepflow/deepflow.yml`
 
 ```bash
 ssh root@openclaw.svc.plus \
-  'curl -fsSL https://raw.githubusercontent.com/cloud-neutral-toolkit/observability.svc.plus/main/scripts/agent-install.sh \
+  'curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/observability.svc.plus/main/scripts/agent-install.sh \
     | bash -s -- --endpoint https://observability.svc.plus/ingest/otlp'
 ```
 
@@ -190,7 +226,7 @@ ssh root@openclaw.svc.plus \
 
 ```bash
 ssh root@jp-xhttp.svc.plus \
-  'curl -fsSL https://raw.githubusercontent.com/cloud-neutral-toolkit/observability.svc.plus/main/scripts/agent-install.sh \
+  'curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/observability.svc.plus/main/scripts/agent-install.sh \
     | bash -s -- --endpoint https://observability.svc.plus/ingest/otlp'
 ```
 
