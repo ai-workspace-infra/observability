@@ -5,6 +5,7 @@ if [ "${1:-}" = --help ] || [ "${1:-}" = -h ]; then
     cat <<'HELP'
 Standalone observability server installer (root, Debian/Ubuntu, Python >= 3.11).
 Export VECTOR_AUTH_USER/VECTOR_AUTH_PASSWORD or VAULT_ADDR/VAULT_TOKEN.
+If all Vault settings are absent, the server generates and displays one credential pair after successful health checks.
 Server additionally requires GRAFANA_ADMIN_PASSWORD; OBSERVABILITY_DOMAIN is optional.
 Agent accepts OBSERVABILITY_NODE_NAME, OBSERVABILITY_ENDPOINT and DEPLOY_ENV.
 Optional: OBSERVABILITY_INSTALLER_REF and OBSERVABILITY_PLAYBOOKS_REF (full commit SHA).

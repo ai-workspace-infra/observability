@@ -20,7 +20,7 @@ for name in VAULT_ADDR VAULT_TOKEN; do
 done
 ```
 
-**服务端：** 还需提供 `GRAFANA_ADMIN_PASSWORD`。通过 Vault Agent 注入，或在当前 Shell 中隐藏输入：
+**服务端：** 还需提供 `GRAFANA_ADMIN_PASSWORD`。通过 Vault Agent 注入，或在当前 Shell 中隐藏输入。若 `VAULT_ADDR`、`VAULT_TOKEN`、`VAULT_TLS_SECRET_PATH` 均未设置，服务端会生成随机 Basic Auth 用户名和密码；仅在部署及健康检查成功后于终端显示一次，不写入服务器文件或 Ansible 日志。请当场安全保存。若这三项只配置了一部分，部署会报错，不会悄悄改用新凭据：
 
 ```bash
 read -rsp "Grafana admin password: " GRAFANA_ADMIN_PASSWORD
@@ -32,7 +32,7 @@ unset GRAFANA_ADMIN_PASSWORD VAULT_TOKEN
 
 **Caddy 写入认证：** Caddy 入口使用 HTTP Basic Auth。安装器通过当前 Shell 的 Vault 环境安全读取 `kv/data/CICD/observability` 中的 `user`、`password`，不会把凭据打印到终端或 Ansible 日志。`VAULT_TLS_SECRET_PATH` 是代理 TLS 证书的秘密路径，若同一 Shell 同时配置代理 Vault Agent 可单独导出；它不是监控账号路径，独立监控安装器不会用它替代 `VAULT_OBSERVABILITY_SECRET_PATH`。
 
-**探针端：** 安装器从同一 Vault 路径读取 `user`、`password`，由 Vector 使用 HTTP Basic Auth 向 Caddy 写入指标和日志。每台探针仍需从 Vault 获取这组凭据，或直接注入 `VECTOR_AUTH_USER`、`VECTOR_AUTH_PASSWORD`。探针的 Vector 配置需要保存认证配置以便服务运行，因此请确保目标主机配置仅 root 可读。
+**探针端：** 安装器从同一 Vault 路径读取 `user`、`password`，由 Vector 使用 HTTP Basic Auth 向 Caddy 写入指标和日志。若服务端使用自动生成的凭据，每台探针必须从 Vault 读取同一组凭据，或在当前 Shell 用 `read -rsp` 安全输入并导出 `VECTOR_AUTH_USER`、`VECTOR_AUTH_PASSWORD`；探针端不会单独生成凭据。Vector 需要在本机受限权限配置中保留认证信息才能持续运行。
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/observability.svc.plus/main/setup-observability-agent.sh | bash

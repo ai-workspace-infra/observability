@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import shutil
 import socket
+import secrets as random_secrets
 import subprocess
 import tarfile
 import tempfile
@@ -22,16 +23,30 @@ def truth(value):
     return str(value).lower() in ('1', 'true', 'yes', 'on')
 
 
-def credentials(env):
-    if env.get('VECTOR_AUTH_USER') and env.get('VECTOR_AUTH_PASSWORD'):
-        return
+def credentials(env, mode):
+    user, password = env.get('VECTOR_AUTH_USER', ''), env.get('VECTOR_AUTH_PASSWORD', '')
+    if bool(user) != bool(password):
+        raise ValueError('Provide both VECTOR_AUTH_USER and VECTOR_AUTH_PASSWORD.')
+    if user and password:
+        return 'provided'
+
     address, token = env.get('VAULT_ADDR', '').rstrip('/'), env.get('VAULT_TOKEN', '')
     path = env.get('VAULT_OBSERVABILITY_SECRET_PATH', 'kv/data/CICD/observability').strip('/')
+    vault_configured = any(env.get(key) for key in (
+        'VAULT_ADDR', 'VAULT_TOKEN', 'VAULT_TLS_SECRET_PATH', 'VAULT_OBSERVABILITY_SECRET_PATH'))
+    if not vault_configured:
+        if mode != 'server':
+            raise ValueError('Agent install needs Vault credentials or both VECTOR_AUTH_USER and VECTOR_AUTH_PASSWORD.')
+        env['VECTOR_AUTH_USER'] = 'obs_' + random_secrets.token_urlsafe(9)
+        env['VECTOR_AUTH_PASSWORD'] = random_secrets.token_urlsafe(32)
+        return 'generated'
     if not address.startswith('https://') or not token or '/data/' not in path:
-        raise ValueError('Export monitoring credentials or HTTPS VAULT_ADDR, VAULT_TOKEN and a KV v2 path.')
+        raise ValueError('Vault configuration is incomplete; provide HTTPS VAULT_ADDR, VAULT_TOKEN and a KV v2 secret path.')
+
     class NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self, *args, **kwargs):
             return None
+
     request = urllib.request.Request(address + '/v1/' + path, headers={'X-Vault-Token': token})
     try:
         with urllib.request.build_opener(NoRedirect()).open(request, timeout=20) as response:
@@ -39,6 +54,14 @@ def credentials(env):
         env['VECTOR_AUTH_USER'], env['VECTOR_AUTH_PASSWORD'] = data['user'], data['password']
     except (urllib.error.URLError, KeyError, ValueError, TypeError):
         raise ValueError('Unable to read monitoring user/password from Vault.') from None
+    return 'vault'
+
+
+def display_generated_credentials(env):
+    print('Generated Caddy HTTP Basic Auth credentials (shown once; save securely now):', flush=True)
+    print('VECTOR_AUTH_USER=' + env['VECTOR_AUTH_USER'], flush=True)
+    print('VECTOR_AUTH_PASSWORD=' + env['VECTOR_AUTH_PASSWORD'], flush=True)
+    print('Use this same pair on every agent, or store it at kv/data/CICD/observability.', flush=True)
 
 
 def plan(mode, env):
@@ -176,7 +199,7 @@ def main():
     args = parser.parse_args()
     env = dict(os.environ)
     inventory, variables, playbook = plan(args.mode, env)
-    credentials(env)
+    credential_source = credentials(env, args.mode)
     if truth(env.get('VECTOR_BILLING_INGEST_ENABLED', 'false')) and not (env.get('VECTOR_BILLING_INGEST_URL') and env.get('INTERNAL_SERVICE_TOKEN')):
         raise ValueError('Billing snapshots require VECTOR_BILLING_INGEST_URL and INTERNAL_SERVICE_TOKEN.')
     user, password = env['VECTOR_AUTH_USER'], env['VECTOR_AUTH_PASSWORD']
@@ -218,6 +241,8 @@ def main():
              '--limit', next(iter(inventory['all']['children']['observability_local']['hosts'])),
              '--extra-vars', '@' + str(root / 'vars.json')], env)
     verify(args.mode, env)
+    if credential_source == 'generated':
+        display_generated_credentials(env)
 
 
 if __name__ == '__main__':
