@@ -18,6 +18,8 @@
 
 本仓库维护轻量安装脚本、部署说明和契约检查；服务角色、多主机库存与编排以 `playbooks` 为准，避免两处实现漂移。
 
+跨仓库迁移遵循[执行逻辑归属迁移规范](https://github.com/ai-workspace-lab/xworkspace-core-skills/blob/main/skills/engineering-standards/execution-ownership-migration/SKILL.md)：遥测专属安装入口、契约和资产留在本仓库，通用主机/服务执行复用 Playbooks；Toolkit 只保留控制面调用，不复制实现。
+
 ### 使命与交付准则
 
 - **统一遥测**：汇集 Metrics、Logs 与 Traces，供 Grafana 查询与展示。
