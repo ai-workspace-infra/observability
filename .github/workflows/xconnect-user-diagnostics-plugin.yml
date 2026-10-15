@@ -1,0 +1,107 @@
+name: XConnect user diagnostics plugin
+
+on:
+  pull_request:
+    paths:
+      - 'grafana/plugins/xconnect-user-diagnostics-app/**'
+      - '.github/workflows/xconnect-user-diagnostics-plugin.yml'
+  push:
+    branches: [main]
+    tags: ['xconnect-user-diagnostics-v*']
+    paths:
+      - 'grafana/plugins/xconnect-user-diagnostics-app/**'
+      - '.github/workflows/xconnect-user-diagnostics-plugin.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PLUGIN_DIR: grafana/plugins/xconnect-user-diagnostics-app
+  PLUGIN_ID: aiworkspace-xconnectuserdiagnostics-app
+
+jobs:
+  validate:
+    name: Build and validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: grafana/plugins/xconnect-user-diagnostics-app/package-lock.json
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: grafana/plugins/xconnect-user-diagnostics-app/go.mod
+
+      - name: Install Mage
+        run: go install github.com/magefile/mage@v1.15.0
+
+      - name: Install frontend dependencies
+        working-directory: ${{ env.PLUGIN_DIR }}
+        run: npm ci
+
+      - name: Check frontend
+        working-directory: ${{ env.PLUGIN_DIR }}
+        run: |
+          npm run typecheck
+          npm run lint
+          npm run test:ci
+          npm run build
+
+      - name: Build backend binaries
+        working-directory: ${{ env.PLUGIN_DIR }}
+        run: $HOME/go/bin/mage -v buildAll
+
+      - name: Package immutable archive
+        working-directory: ${{ env.PLUGIN_DIR }}
+        run: |
+          rm -rf package
+          mkdir -p package/${PLUGIN_ID}
+          cp -R dist/. package/${PLUGIN_ID}/
+          (cd package && zip -qr ../${PLUGIN_ID}-${GITHUB_REF_NAME#xconnect-user-diagnostics-v}.zip ${PLUGIN_ID})
+          sha256sum ${PLUGIN_ID}-*.zip
+
+      - name: Validate plugin metadata
+        working-directory: ${{ env.PLUGIN_DIR }}
+        run: |
+          docker run --pull=always --rm \
+            -v "$PWD/${PLUGIN_ID}-${GITHUB_REF_NAME#xconnect-user-diagnostics-v}.zip:/archive.zip" \
+            grafana/plugin-validator-cli -analyzer=metadatavalid /archive.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xconnect-user-diagnostics-plugin
+          path: ${{ env.PLUGIN_DIR }}/${{ env.PLUGIN_ID }}-*.zip
+          if-no-files-found: error
+
+  release:
+    name: Publish fixed version ZIP
+    if: startsWith(github.ref, 'refs/tags/xconnect-user-diagnostics-v')
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: xconnect-user-diagnostics-plugin
+          path: release
+      - name: Verify version tag and checksum
+        run: |
+          test "$(find release -name '*.zip' -printf '%f\n' | wc -l)" -eq 1
+          archive="$(find release -name '*.zip' -print -quit)"
+          expected="${GITHUB_REF_NAME#xconnect-user-diagnostics-v}"
+          case "$archive" in
+            *-${expected}.zip) ;;
+            *) echo "archive does not match tag: $archive" >&2; exit 1 ;;
+          esac
+          sha256sum "$archive" | tee release/SHA256SUMS
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" release/*.zip release/SHA256SUMS --generate-notes --title "XConnect user diagnostics $GITHUB_REF_NAME"
