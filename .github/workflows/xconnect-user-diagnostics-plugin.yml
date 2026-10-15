@@ -59,17 +59,19 @@ jobs:
       - name: Package immutable archive
         working-directory: ${{ env.PLUGIN_DIR }}
         run: |
+          PLUGIN_VERSION="$(node -p "require('./package.json').version")"
           rm -rf package
           mkdir -p package/${PLUGIN_ID}
           cp -R dist/. package/${PLUGIN_ID}/
-          (cd package && zip -qr ../${PLUGIN_ID}-${GITHUB_REF_NAME#xconnect-user-diagnostics-v}.zip ${PLUGIN_ID})
+          (cd package && zip -qr ../${PLUGIN_ID}-${PLUGIN_VERSION}.zip ${PLUGIN_ID})
           sha256sum ${PLUGIN_ID}-*.zip
 
       - name: Validate plugin metadata
         working-directory: ${{ env.PLUGIN_DIR }}
         run: |
+          PLUGIN_VERSION="$(node -p "require('./package.json').version")"
           docker run --pull=always --rm \
-            -v "$PWD/${PLUGIN_ID}-${GITHUB_REF_NAME#xconnect-user-diagnostics-v}.zip:/archive.zip" \
+            -v "$PWD/${PLUGIN_ID}-${PLUGIN_VERSION}.zip:/archive.zip" \
             grafana/plugin-validator-cli -analyzer=metadatavalid /archive.zip
 
       - uses: actions/upload-artifact@v4
