@@ -1,0 +1,36 @@
+{
+  "$schema": "https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/developers/plugins/plugin.schema.json",
+  "type": "app",
+  "name": "XConnect User Diagnostics",
+  "id": "aiworkspace-xconnectuserdiagnostics-app",
+  "backend": true,
+  "executable": "gpx_x_connect_user_diagnostics",
+  "info": {
+    "keywords": ["xconnect", "diagnostics", "traces"],
+    "description": "Search XConnect traces by email or Proxy UUID without persisting raw identifiers.",
+    "author": {
+      "name": "Ai workspace"
+    },
+    "logos": {
+      "small": "img/logo.svg",
+      "large": "img/logo.svg"
+    },
+    "screenshots": [],
+    "version": "0.1.0",
+    "updated": "%TODAY%"
+  },
+  "includes": [
+    {
+      "type": "page",
+      "name": "XConnect 用户慢连接诊断",
+      "path": "/a/%PLUGIN_ID%",
+      "role": "Admin",
+      "addToNav": true,
+      "defaultNav": true
+    }
+  ],
+  "dependencies": {
+    "grafanaDependency": ">=13.2.0",
+    "plugins": []
+  }
+}
